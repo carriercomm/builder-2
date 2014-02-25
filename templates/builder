@@ -35,8 +35,9 @@ def get_app_config(app_name):
     data = {}
     data['id'] = app_name
     config = json.loads(deis_api('/hooks/config'.format(app_name), payload=data, verb='GET').content)
-    env_args = ' '.join(["-e '{k}={v}'".format(**locals())
+    return ' '.join(["-e '{k}={v}'".format(**locals())
                      for k, v in config.items()])
+
 
 DOCKERFILE_SHIM = """FROM deis/slugrunner
 RUN mkdir -p /app
@@ -74,9 +75,9 @@ if __name__ == '__main__':
         if not os.path.exists(dockerfile) and os.path.exists(procfile):
             env_vars = get_app_config(app)
             if os.path.exists('/buildpacks'):
-                build_cmd = "docker run -i -a stdin -v {cache_dir}:/tmp/cache:rw -v /buildpacks:/tmp/buildpacks deis/slugbuilder {env_vars}".format(**locals())
+                build_cmd = "docker run {env_vars} -i -a stdin -v {cache_dir}:/tmp/cache:rw -v /buildpacks:/tmp/buildpacks deis/slugbuilder".format(**locals())
             else:
-                build_cmd = "docker run -i -a stdin -v {cache_dir}:/tmp/cache:rw deis/slugbuilder {env_vars}".format(**locals())
+                build_cmd = "docker run {env_vars} -i -a stdin -v {cache_dir}:/tmp/cache:rw deis/slugbuilder".format(**locals())
             # run slugbuilder in the background
             p = subprocess.Popen("git archive master | " + build_cmd, shell=True, cwd=repo_dir, stdout=subprocess.PIPE)
             container = p.stdout.read().strip('\n')
