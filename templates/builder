@@ -24,6 +24,19 @@ def parse_args():
     app = repo.split('.')[0]
     return user, repo, app
 
+def deis_api(method, payload=None, verb='post'):
+    url = "{{ .deis_controller_protocol }}://{{ .deis_controller_host }}:{{ .deis_controller_port }}/api{}".format(method)
+    headers = {}
+    headers['Content-Type'] = 'application/json'
+    headers['X-Deis-Builder-Auth'] = '{{ .deis_controller_builderKey }}'
+    return getattr(requests, verb.lower())(url, data=json.dumps(payload), headers=headers)
+
+def get_app_config(app_name):
+    data = {}
+    data['id'] = app_name
+    config = json.loads(deis_api('/hooks/config'.format(app_name), payload=data, verb='GET').content)
+    env_args = ' '.join(["-e '{k}={v}'".format(**locals())
+                     for k, v in config.items()])
 
 DOCKERFILE_SHIM = """FROM deis/slugrunner
 RUN mkdir -p /app
@@ -59,10 +72,11 @@ if __name__ == '__main__':
         dockerfile = os.path.join(temp_dir, 'Dockerfile')
         procfile = os.path.join(temp_dir, 'Procfile')
         if not os.path.exists(dockerfile) and os.path.exists(procfile):
+            env_vars = get_app_config(app)
             if os.path.exists('/buildpacks'):
-                build_cmd = "docker run -i -a stdin -v {cache_dir}:/tmp/cache:rw -v /buildpacks:/tmp/buildpacks deis/slugbuilder".format(**locals())
+                build_cmd = "docker run -i -a stdin -v {cache_dir}:/tmp/cache:rw -v /buildpacks:/tmp/buildpacks deis/slugbuilder {env_vars}".format(**locals())
             else:
-                build_cmd = "docker run -i -a stdin -v {cache_dir}:/tmp/cache:rw deis/slugbuilder".format(**locals())
+                build_cmd = "docker run -i -a stdin -v {cache_dir}:/tmp/cache:rw deis/slugbuilder {env_vars}".format(**locals())
             # run slugbuilder in the background
             p = subprocess.Popen("git archive master | " + build_cmd, shell=True, cwd=repo_dir, stdout=subprocess.PIPE)
             container = p.stdout.read().strip('\n')
@@ -123,9 +137,7 @@ if __name__ == '__main__':
         # trigger build hook
         sys.stdout.write('\n       Launching... ')
         sys.stdout.flush()
-        url = "{{ .deis_controller_protocol }}://{{ .deis_controller_host }}:{{ .deis_controller_port }}/api/hooks/build"
-        headers = {'Content-Type': 'application/json', 'X-Deis-Builder-Auth': '{{ .deis_controller_builderKey }}'}
-        r = requests.post(url, headers=headers, data=json.dumps(body))
+        r = deis_api('/hooks/build', payload=body)
         if r.status_code != 200:
             raise Exception('Build hook error: {} {}'.format(r.status_code, r.text))
         # write out results for git user
